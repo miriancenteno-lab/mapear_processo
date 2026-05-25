@@ -27,13 +27,13 @@ section[data-testid="stSidebar"] { background: #1a1a38 !important; }
     background: rgba(255,255,255,0.06) !important;
     border: 1px solid rgba(155,106,250,0.3) !important;
     border-radius: 8px !important;
-    color: #fff !important;
+    color: #131326 !important;
 }
 .stSelectbox > div > div {
     background: #1e1e40 !important;
     border: 1px solid rgba(155,106,250,0.3) !important;
     border-radius: 8px !important;
-    color: #fff !important;
+    color: #131326 !important;
 }
 /* labels */
 .stTextInput label, .stTextArea label, .stSelectbox label,
