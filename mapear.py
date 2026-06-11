@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime, date
 from anthropic import Anthropic
 
-# ─── CONFIG ──────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Appmax · Mapeamento de Processos",
     page_icon="✦",
@@ -12,47 +11,45 @@ st.set_page_config(
     initial_sidebar_state="auto",
 )
 
-# ─── CSS ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap');
-
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif !important; }
 .stApp { background: #131326 !important; color: #fff !important; }
 section[data-testid="stSidebar"] { background: #1a1a38 !important; }
 #MainMenu, footer { visibility: hidden; }
-
-/* inputs */
 .stTextInput input, .stTextArea textarea, .stNumberInput input, .stDateInput input {
-    background: rgba(255,255,255,0.06) !important;
-    border: 1px solid rgba(155,106,250,0.3) !important;
+    background: #F0EBFF !important;
+    border: 1px solid rgba(155,106,250,0.4) !important;
     border-radius: 8px !important;
     color: #131326 !important;
+    font-size: 14px !important;
 }
 .stSelectbox > div > div {
-    background: #1e1e40 !important;
-    border: 1px solid rgba(155,106,250,0.3) !important;
+    background: #F0EBFF !important;
+    border: 1px solid rgba(155,106,250,0.4) !important;
     border-radius: 8px !important;
     color: #131326 !important;
 }
-/* labels */
+.stMultiSelect > div > div {
+    background: #F0EBFF !important;
+    border: 1px solid rgba(155,106,250,0.4) !important;
+    border-radius: 8px !important;
+}
 .stTextInput label, .stTextArea label, .stSelectbox label,
-.stNumberInput label, .stDateInput label, .stRadio label,
-.stMultiSelect label {
+.stNumberInput label, .stDateInput label, .stRadio label, .stMultiSelect label {
     color: #C4A6FD !important;
     font-size: 12px !important;
     font-weight: 600 !important;
     text-transform: uppercase !important;
     letter-spacing: 0.5px !important;
 }
-/* buttons */
 .stButton > button {
     background: #9B6AFA !important;
     color: #fff !important;
     border: none !important;
     border-radius: 8px !important;
     font-weight: 600 !important;
-    transition: all 0.2s !important;
 }
 .stButton > button:hover { background: #C4A6FD !important; color: #281E49 !important; }
 .stButton > button[kind="secondary"] {
@@ -60,13 +57,12 @@ section[data-testid="stSidebar"] { background: #1a1a38 !important; }
     border: 1px solid rgba(155,106,250,0.4) !important;
     color: #C4A6FD !important;
 }
-/* radio */
+.stRadio > div { gap: 8px !important; flex-wrap: wrap !important; }
 .stRadio > div > label {
-    background: rgba(255,255,255,0.03) !important;
-    border: 1px solid rgba(155,106,250,0.2) !important;
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(155,106,250,0.25) !important;
     border-radius: 20px !important;
-    padding: 6px 16px !important;
-    margin-right: 6px !important;
+    padding: 7px 18px !important;
     color: #A8A7BC !important;
     font-size: 13px !important;
     font-weight: 400 !important;
@@ -75,604 +71,540 @@ section[data-testid="stSidebar"] { background: #1a1a38 !important; }
     cursor: pointer !important;
 }
 .stRadio > div > label:has(input:checked) {
-    background: rgba(155,106,250,0.15) !important;
+    background: rgba(155,106,250,0.18) !important;
     border-color: #9B6AFA !important;
     color: #C4A6FD !important;
     font-weight: 600 !important;
-}
-/* multiselect */
-.stMultiSelect > div > div {
-    background: #1e1e40 !important;
-    border: 1px solid rgba(155,106,250,0.3) !important;
-    border-radius: 8px !important;
-}
-/* expander */
-.streamlit-expanderHeader {
-    background: rgba(155,106,250,0.07) !important;
-    border: 1px solid rgba(155,106,250,0.2) !important;
-    border-radius: 8px !important;
-    color: #C4A6FD !important;
 }
 hr { border-color: rgba(155,106,250,0.15) !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── HELPERS ─────────────────────────────────────────────────────────────────
+# ── helpers ──────────────────────────────────────────────────
 def hp(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def tempo_empresa(d):
     hoje = date.today()
-    m = (hoje.year - d.year) * 12 + (hoje.month - d.month)
+    m = (hoje.year - d.year)*12 + (hoje.month - d.month)
     if m < 12: return f"{m} meses"
-    a = m // 12; r = m % 12
+    a = m//12; r = m%12
     return f"{a} ano{'s' if a>1 else ''}" + (f" e {r} meses" if r else "")
 
-def get_client():
+def get_ai():
     try:
         key = st.secrets["ANTHROPIC_API_KEY"]
     except Exception:
-        st.error("⚠️ Configure ANTHROPIC_API_KEY nos Secrets do Streamlit Cloud.")
+        st.error("Configure ANTHROPIC_API_KEY nos Secrets do Streamlit Cloud.")
         st.stop()
     return Anthropic(api_key=key)
 
-def call_ai(system, user):
+def call_ai(system, user, max_tokens=1600):
     try:
-        r = get_client().messages.create(
+        r = get_ai().messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=600,
+            max_tokens=max_tokens,
             system=system,
-            messages=[{"role": "user", "content": user}]
+            messages=[{"role":"user","content":user}]
         )
         return r.content[0].text
     except Exception as e:
-        return f"⚠️ {e}"
+        return f"Erro: {e}"
 
-def init_db():
-    if "db" not in st.session_state:
-        st.session_state.db = {"mapeamentos": []}
+# ── Google Sheets ─────────────────────────────────────────────
+def save_to_sheets(usuario, demanda, fluxograma, sugestao):
+    try:
+        import gspread, json
+        from google.oauth2.service_account import Credentials
+        creds_raw = st.secrets["GOOGLE_CREDENTIALS"]
+        creds_dict = json.loads(creds_raw) if isinstance(creds_raw, str) else dict(creds_raw)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets",
+                  "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(st.secrets["SHEET_ID"])
+        try:
+            ws = sh.worksheet("Mapeamentos")
+        except Exception:
+            ws = sh.add_worksheet("Mapeamentos", rows=1000, cols=22)
+        headers = ["ID","Data/Hora","Nome","E-mail","Time","Cargo","Tempo Empresa",
+                   "Nome Demanda","Tipo","Ferramentas","Objetivo","Problema",
+                   "Impacto Tipo","Impacto Desc","Impacto Financeiro",
+                   "Frequência","Gatilho","Descrição Livre","Fluxograma BPMN","Sugestão"]
+        if not ws.row_values(1):
+            ws.append_row(headers)
+        ws.append_row([
+            str(uuid.uuid4())[:8],
+            datetime.now().strftime("%d/%m/%Y %H:%M"),
+            usuario.get("nome",""), usuario.get("email",""),
+            usuario.get("time",""), usuario.get("cargo",""), usuario.get("tempo",""),
+            demanda.get("nome",""), demanda.get("tipo",""), demanda.get("ferramentas",""),
+            demanda.get("objetivo",""), demanda.get("problema",""),
+            ", ".join(demanda.get("impacto_tipo",[])),
+            demanda.get("impacto_desc",""), demanda.get("impacto_fin",""),
+            demanda.get("freq",""), demanda.get("gatilho",""),
+            demanda.get("descricao_livre",""), fluxograma, sugestao,
+        ])
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
-def save_map(usuario, job, processo):
-    init_db()
-    st.session_state.db["mapeamentos"].append({
-        "id": str(uuid.uuid4())[:8],
-        "ts": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "usuario": usuario, "job": job, "processo": processo,
-    })
+# ── Usuários ──────────────────────────────────────────────────
+ADMIN_EMAIL = "admin@appmax.com.br"
+ADMIN_PW    = hp("admin2025")
 
-# ─── USUÁRIOS ─────────────────────────────────────────────────────────────────
-USERS = {
-    "demo@appmax.com.br":   {"pw": hp("appmax2025"),  "nome": "Demo User",      "role": "user"},
-    "gestor@appmax.com.br": {"pw": hp("gestor2025"),  "nome": "Gestor Appmax",  "role": "gestor"},
-}
+def get_users():
+    if "usuarios_cadastrados" not in st.session_state:
+        st.session_state.usuarios_cadastrados = {
+            "demo@appmax.com.br": {"nome":"Demo User","pw":hp("appmax2025"),"ativo":True},
+        }
+    return st.session_state.usuarios_cadastrados
 
-# ─── COMPONENTES VISUAIS ──────────────────────────────────────────────────────
-def card_header(emoji, title, subtitle=""):
+# ── componentes ───────────────────────────────────────────────
+def page_header():
+    st.markdown("""
+    <div style="border-bottom:1px solid rgba(155,106,250,0.15);padding-bottom:14px;margin-bottom:20px;
+                display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-size:18px;font-weight:700;">
+            <span style="color:#9B6AFA;">A</span>ppmax
+            <span style="color:#A8A7BC;font-weight:300;font-size:15px;"> · Mapeamento de Processos</span>
+        </div>
+        <span style="font-size:10px;letter-spacing:2px;color:#AAEDFF;background:rgba(170,237,255,0.08);
+                     border:1px solid rgba(170,237,255,0.22);padding:4px 12px;border-radius:100px;
+                     font-family:monospace;">✦ IA ATIVA</span>
+    </div>""", unsafe_allow_html=True)
+
+def section_title(emoji, title, sub=""):
     st.markdown(f"""
     <div style="background:rgba(155,106,250,0.07);border:1px solid rgba(155,106,250,0.2);
-                border-radius:14px;padding:20px 24px;margin-bottom:20px;">
-        <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px;">{emoji} {title}</div>
-        {"<div style='font-size:13px;color:#A8A7BC;line-height:1.6;'>" + subtitle + "</div>" if subtitle else ""}
-    </div>
-    """, unsafe_allow_html=True)
-
-def ai_bubble(text):
-    if text:
-        st.markdown(f"""
-        <div style="background:rgba(170,237,255,0.06);border:1px solid rgba(170,237,255,0.25);
-                    border-radius:10px;padding:12px 16px;margin:8px 0;
-                    font-size:13px;color:#AAEDFF;line-height:1.6;">
-            ✦ {text}
-        </div>
-        """, unsafe_allow_html=True)
+                border-left:4px solid #9B6AFA;border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:20px;">
+        <div style="font-size:18px;font-weight:700;color:#fff;">{emoji}&nbsp; {title}</div>
+        {"<div style='font-size:13px;color:#A8A7BC;margin-top:4px;line-height:1.6;'>" + sub + "</div>" if sub else ""}
+    </div>""", unsafe_allow_html=True)
 
 def step_bar(current, total, labels):
     pips = ""
     for i in range(total):
-        if i < current:   c, w = "#9B6AFA", "28px"
-        elif i == current: c, w = "#C4A6FD", "40px"
-        else:              c, w = "rgba(155,106,250,0.2)", "8px"
-        pips += f"<div style='height:7px;width:{w};border-radius:100px;background:{c};transition:all .3s'></div>"
-    lbl = labels[current] if current < len(labels) else ""
+        if i < current:    c,w = "#9B6AFA","32px"
+        elif i == current: c,w = "#C4A6FD","48px"
+        else:              c,w = "rgba(155,106,250,0.18)","8px"
+        pips += f"<div style='height:6px;width:{w};border-radius:100px;background:{c};transition:all .3s'></div>"
+    lbl = labels[min(current,len(labels)-1)]
     st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:6px;margin-bottom:24px;">
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:24px;">
         {pips}
-        <span style="font-size:11px;color:#A8A7BC;margin-left:8px;font-family:monospace;letter-spacing:1px;">
-            {current+1}/{total} · {lbl}
-        </span>
-    </div>
-    """, unsafe_allow_html=True)
+        <span style="font-size:11px;color:#A8A7BC;margin-left:10px;font-family:monospace;
+                     letter-spacing:1px;text-transform:uppercase;">{current+1}/{total} · {lbl}</span>
+    </div>""", unsafe_allow_html=True)
 
-def step_chip(num, text):
+def hint(text):
     st.markdown(f"""
-    <div style="background:rgba(155,106,250,0.08);border:1px solid rgba(155,106,250,0.2);
-                border-radius:10px;padding:10px 14px;margin-bottom:6px;
-                font-size:13px;color:#E6E0FC;display:flex;gap:10px;align-items:flex-start;">
-        <span style="background:#45337C;color:#C4A6FD;font-family:monospace;font-size:10px;
-                     font-weight:700;min-width:22px;height:22px;border-radius:50%;
-                     display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">
-            {str(num).zfill(2)}
-        </span>
-        <span>{text}</span>
-    </div>
+    <div style="background:rgba(170,237,255,0.05);border:1px solid rgba(170,237,255,0.15);
+                border-radius:8px;padding:10px 14px;margin-bottom:10px;
+                font-size:12px;color:#A8A7BC;line-height:1.6;">💡 {text}</div>
     """, unsafe_allow_html=True)
 
-def info_box(text, color="#F0EBFF", tcolor="#3D1F8F"):
+def bpmn_box(text):
     st.markdown(f"""
-    <div style="background:{color};border-radius:10px;padding:14px 18px;
-                margin:10px 0;font-size:13px;color:{tcolor};line-height:1.6;">
-        {text}
-    </div>
-    """, unsafe_allow_html=True)
+    <div style="background:rgba(69,51,124,0.18);border:1px solid rgba(155,106,250,0.3);
+                border-radius:12px;padding:20px 22px;font-size:13px;color:#E6E0FC;
+                line-height:1.9;white-space:pre-wrap;font-family:monospace;margin:12px 0;">
+{text}
+    </div>""", unsafe_allow_html=True)
 
-# ─── LOGIN ────────────────────────────────────────────────────────────────────
+# ── LOGIN ─────────────────────────────────────────────────────
 def page_login():
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 1.6, 1])
-    with col2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 1.8, 1])
+    with col:
         st.markdown("""
         <div style="text-align:center;margin-bottom:32px;">
-            <div style="font-size:32px;font-weight:700;letter-spacing:-1px;">
-                <span style="color:#9B6AFA;">A</span>ppmax
-            </div>
-            <div style="font-size:14px;color:#A8A7BC;margin-top:6px;">
-                Mapeamento Inteligente de Processos
-            </div>
+            <div style="font-size:36px;font-weight:700;letter-spacing:-1.5px;">
+                <span style="color:#9B6AFA;">A</span>ppmax</div>
+            <div style="font-size:13px;color:#A8A7BC;margin-top:6px;">
+                Mapeamento Inteligente de Processos</div>
         </div>
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(155,106,250,0.2);
+                    border-radius:16px;padding:30px 28px;">
         """, unsafe_allow_html=True)
-
-        with st.container():
-            st.markdown("""
-            <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(155,106,250,0.2);
-                        border-radius:16px;padding:32px;">
-            """, unsafe_allow_html=True)
-
-            email = st.text_input("E-mail", placeholder="seu@appmax.com.br", key="li_email")
-            senha = st.text_input("Senha", type="password", placeholder="••••••••", key="li_senha")
-
-            if st.button("Entrar →", use_container_width=True):
-                u = USERS.get(email.strip().lower())
-                if u and u["pw"] == hp(senha):
-                    st.session_state.auth = True
-                    st.session_state.email = email.strip().lower()
-                    st.session_state.role  = u["role"]
-                    st.session_state.nome  = u["nome"]
-                    st.session_state.step  = 0
+        email = st.text_input("E-mail", placeholder="seu@appmax.com.br", key="li_e")
+        senha = st.text_input("Senha", type="password", placeholder="••••••••", key="li_s")
+        if st.button("Entrar →", use_container_width=True):
+            e = email.strip().lower()
+            if e == ADMIN_EMAIL and hp(senha) == ADMIN_PW:
+                st.session_state.update(auth=True,email=e,role="admin",nome="Admin",page="admin")
+                st.rerun()
+            else:
+                u = get_users().get(e)
+                if u and u["pw"] == hp(senha) and u.get("ativo"):
+                    st.session_state.update(auth=True,email=e,role="user",nome=u["nome"],page="cadastro")
                     st.rerun()
                 else:
-                    st.error("E-mail ou senha incorretos.")
+                    st.error("E-mail ou senha incorretos, ou acesso não liberado.")
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.caption("Acesso liberado pelo administrador.")
 
-            st.markdown("<hr style='margin:20px 0'>", unsafe_allow_html=True)
-            st.markdown("""
-            <div style="font-size:12px;color:#A8A7BC;text-align:center;line-height:2;">
-                <b style="color:#C4A6FD;">Demo:</b><br>
-                demo@appmax.com.br / appmax2025<br>
-                gestor@appmax.com.br / gestor2025
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+# ── ADMIN ─────────────────────────────────────────────────────
+def page_admin():
+    section_title("⚙️","Painel Admin","Gerencie os usuários com acesso à ferramenta.")
+    users = get_users()
 
-# ─── STEP 1: CADASTRO ─────────────────────────────────────────────────────────
-def step_cadastro():
-    card_header("👤", "Cadastro", "Preencha seus dados para iniciar o mapeamento.")
-    c1, c2 = st.columns(2)
+    with st.expander("➕ Cadastrar novo usuário", expanded=True):
+        c1,c2,c3 = st.columns(3)
+        with c1: nn = st.text_input("Nome",key="nu_n")
+        with c2: ne = st.text_input("E-mail",key="nu_e")
+        with c3: np_ = st.text_input("Senha inicial",type="password",key="nu_p")
+        if st.button("Cadastrar"):
+            if nn and ne and np_:
+                users[ne.strip().lower()] = {"nome":nn,"pw":hp(np_),"ativo":True}
+                st.success(f"✓ {nn} cadastrado!")
+                st.rerun()
+            else:
+                st.warning("Preencha todos os campos.")
+
+    st.markdown(f"---\n**Usuários ({len(users)})**")
+    for em, u in list(users.items()):
+        c1,c2,c3 = st.columns([3,2,1])
+        with c1: st.markdown(f"**{u['nome']}** · `{em}`")
+        with c2: st.caption("✅ Ativo")
+        with c3:
+            if st.button("Remover",key=f"rm_{em}"):
+                users.pop(em,None); st.rerun()
+
+    st.markdown("---")
+    sh_ok = "GOOGLE_CREDENTIALS" in st.secrets and "SHEET_ID" in st.secrets
+    if sh_ok:
+        try:
+            import gspread, json
+            from google.oauth2.service_account import Credentials
+            creds_raw = st.secrets["GOOGLE_CREDENTIALS"]
+            creds_dict = json.loads(creds_raw) if isinstance(creds_raw,str) else dict(creds_raw)
+            scopes = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
+            creds = Credentials.from_service_account_info(creds_dict,scopes=scopes)
+            gc = gspread.authorize(creds)
+            sh = gc.open_by_key(st.secrets["SHEET_ID"])
+            try:
+                ws = sh.worksheet("Mapeamentos")
+                all_r = ws.get_all_records()
+                st.success(f"✓ Google Sheets conectado · {len(all_r)} mapeamento(s)")
+                if all_r:
+                    import pandas as pd
+                    st.dataframe(pd.DataFrame(all_r), use_container_width=True)
+            except Exception:
+                st.info("Planilha conectada, sem dados ainda.")
+        except Exception as e:
+            st.error(f"Erro Google Sheets: {e}")
+    else:
+        st.warning("Google Sheets não configurado. Configure GOOGLE_CREDENTIALS e SHEET_ID nos Secrets.")
+
+# ── ETAPA 1: CADASTRO ─────────────────────────────────────────
+def page_cadastro():
+    section_title("👤","Seus dados","Preencha seu cadastro para iniciar o mapeamento.")
+    c1,c2 = st.columns(2)
     with c1:
-        nome   = st.text_input("Nome completo", key="cn")
-        time_  = st.selectbox("Time", ["","Produto","Engenharia","People & Culture",
-                               "Operações","Comercial","Marketing","Financeiro","CS","TI","Outro"], key="ct")
-        funcao = st.text_input("Função que você exerce hoje (na prática)", key="cf",
-                               placeholder="Ex: Analista de Suporte e Operações")
+        nome  = st.text_input("Nome completo",key="c_nome")
+        time_ = st.selectbox("Time / Departamento",
+            ["","Produto","Engenharia","People & Culture","Operações",
+             "Comercial","Marketing","Financeiro","CS","TI","Outro"],key="c_time")
     with c2:
-        email_ = st.text_input("E-mail corporativo", key="ce",
+        email_ = st.text_input("E-mail corporativo",key="c_email",
                                value=st.session_state.get("email",""))
-        cargo  = st.text_input("Cargo formal", key="cc",
-                               placeholder="Ex: Analista de Operações Pleno")
-        data_  = st.date_input("Data de ingresso", key="cd",
-                               min_value=date(2000,1,1), max_value=date.today(),
-                               value=date(2022,1,1))
-
+        cargo  = st.text_input("Cargo",key="c_cargo",placeholder="Ex: Analista de Operações")
+    data_ = st.date_input("Data de ingresso na empresa",key="c_data",
+                          min_value=date(2000,1,1),max_value=date.today(),value=date(2022,1,1))
     if data_:
-        t = tempo_empresa(data_)
-        st.caption(f"⏱ {t} de empresa")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Continuar →", disabled=not all([nome, email_, time_, cargo, funcao])):
+        st.caption(f"⏱ Tempo de empresa: **{tempo_empresa(data_)}**")
+    st.markdown("<br>",unsafe_allow_html=True)
+    if st.button("Próximo →", disabled=not all([nome,email_,time_,cargo])):
         st.session_state.usuario = dict(
-            nome=nome, email=email_, time=time_, cargo=cargo,
-            funcao=funcao, data_ingresso=data_.isoformat(),
-            tempo=tempo_empresa(data_)
-        )
-        st.session_state.step = 1
-        st.rerun()
+            nome=nome,email=email_,time=time_,cargo=cargo,
+            data_ingresso=data_.isoformat(),tempo=tempo_empresa(data_))
+        st.session_state.page = "demanda"; st.rerun()
 
-# ─── STEP 2: JOB DESCRIPTOR ───────────────────────────────────────────────────
-def step_job():
+# ── ETAPA 2: DADOS DA DEMANDA ─────────────────────────────────
+def page_demanda():
     u = st.session_state.usuario
-    card_header("📋", "Job Descriptor Real",
-                f"Descreva uma atividade principal que você realiza hoje, <b style='color:#C4A6FD'>{u['nome']}</b>.")
+    section_title("📋","Dados da Demanda",
+        f"Olá, <b style='color:#C4A6FD'>{u['nome']}</b>! Descreva a demanda que será mapeada.")
 
-    tarefa   = st.text_area("Tarefa realizada", max_chars=200, key="jt",
-                            placeholder="Ex: Consolido relatórios semanais de performance das campanhas", height=80)
-    c1, c2 = st.columns(2)
+    hint("Use um nome simples que todos os envolvidos entendam do que se trata.")
+    nome_d = st.text_input("Qual é a demanda que será mapeada?",key="d_nome",
+                            placeholder="Ex: Envio de relatório semanal de performance")
+
+    tipo = st.radio("Qual é o tipo da demanda?",[
+        "⚡ Tarefa — Ação isolada ou etapa única, pontual e de curto prazo",
+        "🔄 Processo — Conjunto de tarefas interligadas, organizadas em etapas sequenciais"
+    ],key="d_tipo")
+    tipo_c = "Tarefa" if "Tarefa" in tipo else "Processo"
+    art    = "essa" if tipo_c=="Tarefa" else "esse"
+    Art    = "Essa" if tipo_c=="Tarefa" else "Esse"
+
+    st.markdown("---")
+    hint("Insira o nome das ferramentas usadas: sistemas, planilhas, aplicativos, etc.")
+    ferr = st.text_area(f"Quais ferramentas são necessárias para executar {art} {tipo_c}?",
+        key="d_ferr",height=80,placeholder="Ex: Google Sheets, Salesforce, Slack, SAP...")
+    obj  = st.text_area(f"Qual o objetivo {art} {tipo_c}? Por qual motivo você a executa?",
+        key="d_obj",height=80,placeholder="A finalidade, o resultado esperado e o motivo de negócio.")
+    prob = st.text_area("Qual problema ela resolve?",key="d_prob",height=70,
+        placeholder="A dor, risco ou necessidade que motivou a criação.")
+
+    st.markdown("---")
+    st.markdown(f"<div style='color:#C4A6FD;font-size:12px;font-weight:600;text-transform:uppercase;"
+                f"letter-spacing:.5px;margin-bottom:8px;'>Se você parar de fazer {art} {tipo_c} hoje, "
+                f"qual é o impacto?</div>", unsafe_allow_html=True)
+    imp_tipo = st.multiselect("Quem é impactado?",
+        ["Empresa","Parceiro","Colegas do meu time","Colegas de outros times"],key="d_it")
+    imp_desc = st.text_area("Descreva o impacto em detalhes",key="d_id",height=80)
+    imp_fin  = st.radio("Você sabe mensurar o impacto financeiro?",
+        ["Sim","Não","Parcialmente"],horizontal=True,key="d_if")
+
+    st.markdown("---")
+    freq = st.radio("Qual a frequência?",
+        ["Diária","Semanal","Quinzenal","Mensal","Esporádica"],horizontal=True,key="d_freq")
+    gatilho = ""
+    if freq == "Esporádica":
+        gatilho = st.text_input(
+            f"Qual evento/ação desencadeia a realização {art} {tipo_c}?",key="d_gat")
+
+    st.markdown("<br>",unsafe_allow_html=True)
+    c1,c2 = st.columns([1,3])
     with c1:
-        ferr   = st.text_input("Ferramenta ou sistema", key="jf", placeholder="Ex: Google Sheets, Salesforce...")
-        motivo = st.text_input("Por que você realiza essa tarefa?", key="jm")
+        if st.button("← Voltar"):
+            st.session_state.page="cadastro"; st.rerun()
     with c2:
-        prob   = st.text_area("Qual problema resolve?", key="jp", height=95,
-                              placeholder="Descreva o problema que ela resolve...")
-
-    impacto = st.multiselect("Se você parar hoje, quem é impactado?",
-                             ["Empresa","Parceiros","Meu time","Outros times"], key="ji")
-    imp_d   = st.text_area("Descreva o impacto", key="jid", height=70)
-    mensura = st.radio("Consegue mensurar impacto financeiro?",
-                       ["Sim","Não","Parcialmente"], horizontal=True, key="jme")
-
-    if tarefa and ferr:
-        if st.button("✦ Analisar com IA", key="ai_job"):
-            with st.spinner("Analisando..."):
-                resp = call_ai(
-                    "Você é especialista em análise de processos corporativos. "
-                    "Avalie a descrição da tarefa em 2 frases curtas e construtivas. "
-                    "Responda em português brasileiro.",
-                    f"Colaborador: {u['nome']} ({u['cargo']} - {u['time']})\n"
-                    f"Tarefa: \"{tarefa}\"\nFerramenta: \"{ferr}\"\nMotivo: \"{motivo}\""
-                )
-            ai_bubble(resp)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    c1, c2 = st.columns([1,3])
-    with c1:
-        if st.button("← Voltar", key="jback"):
-            st.session_state.step = 0; st.rerun()
-    with c2:
-        if st.button("Continuar para Mapeamento →", disabled=not (tarefa and ferr)):
-            st.session_state.job = dict(
-                tarefa=tarefa, ferr=ferr, motivo=motivo, prob=prob,
-                impacto=impacto, imp_d=imp_d, mensura=mensura
-            )
-            st.session_state.step = 2
-            st.session_state.passos = []
-            st.session_state.fase = "meta"
-            st.session_state.pop("bpmn", None)
+        if st.button("Próximo → Mapear o processo",
+                     disabled=not all([nome_d,ferr,obj,prob,imp_tipo,imp_desc])):
+            st.session_state.demanda = dict(
+                nome=nome_d,tipo=tipo_c,ferramentas=ferr,objetivo=obj,problema=prob,
+                impacto_tipo=imp_tipo,impacto_desc=imp_desc,impacto_fin=imp_fin,
+                freq=freq,gatilho=gatilho)
+            st.session_state.page="mapeamento"
+            st.session_state.fluxograma=""
+            st.session_state.iteracoes=0
             st.rerun()
 
-# ─── STEP 3: MAPEAMENTO ───────────────────────────────────────────────────────
-def step_mapeamento():
-    fase = st.session_state.get("fase", "meta")
+# ── ETAPA 3: MAPEAMENTO ───────────────────────────────────────
+SYS_GERAR = """Você é especialista em mapeamento de processos e BPM.
+Analise a descrição fornecida e:
+1. Crie um **Fluxograma do Processo (Texto)** estruturado usando o formato:
+[Início]
+   ↓
+[passo]
+   ↓
+[Decisão?]
+   ├─ Não → [ação alternativa]
+   └─ Sim ↓
+[próximo passo]
+   ↓
+[Fim]
 
-    # ── META ──────────────────────────────────────────────────
-    if fase == "meta":
-        card_header("🗺️", "Mapeamento de Processo", "Classifique e caracterize o que você vai mapear.")
+2. Liste os **Pontos de melhoria na descrição do processo**: perguntas objetivas sobre lacunas ou ambiguidades.
+3. Finalize com: "Poderia validar se o fluxo está correto e informar se existe algum passo que não foi descrito?"
+Responda em português brasileiro."""
 
-        tipo = st.radio("Tipo", [
-            "⚡ Tarefa — Ação isolada e pontual",
-            "🔄 Processo — Conjunto de tarefas sequenciais"
-        ], key="mt")
-        tipo_c = "Tarefa" if "Tarefa" in tipo else "Processo"
+SYS_AJUSTAR = """Você é especialista em mapeamento de processos e BPM.
+Incorpore os ajustes informados pelo usuário ao fluxograma anterior e:
+1. Gere novo **Fluxograma do Processo (Texto)** completo e atualizado
+2. Liste novos **Pontos de melhoria** se ainda houver lacunas
+3. Pergunte novamente se o fluxo está correto
+Responda em português brasileiro."""
 
-        c1, c2 = st.columns(2)
-        with c1:
-            nome  = st.text_input(f"Nome d{'a' if tipo_c=='Tarefa' else 'o'} {tipo_c}", key="mn")
-            freq  = st.selectbox("Frequência", ["","Diária","Semanal","Quinzenal","Mensal","Esporádica"], key="mf")
-        with c2:
-            ferr  = st.text_input("Ferramenta principal", key="mfe", placeholder="Ex: Google Drive, Slack...")
-            if freq and freq != "Esporádica":
-                vezes = st.number_input("Quantas vezes por período?", min_value=1, value=1, key="mv")
-            elif freq == "Esporádica":
-                gatilho = st.text_input("O que desencadeia essa atividade?", key="mg")
+def page_mapeamento():
+    d      = st.session_state.demanda
+    tc     = d["tipo"]
+    art    = "da tarefa" if tc=="Tarefa" else "do processo"
+    fluxo  = st.session_state.get("fluxograma","")
+    it     = st.session_state.get("iteracoes",0)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2 = st.columns([1,3])
-        with c1:
-            if st.button("← Voltar", key="mback"):
-                st.session_state.step = 1; st.rerun()
-        with c2:
-            if st.button("Começar a mapear os passos →", disabled=not (nome and freq)):
-                st.session_state.meta = dict(
-                    tipo=tipo_c, nome=nome, ferr=ferr, freq=freq,
-                    vezes=st.session_state.get("mv",1) if freq!="Esporádica" else None,
-                    gatilho=st.session_state.get("mg","") if freq=="Esporádica" else "",
-                )
-                st.session_state.passos = []
-                st.session_state.fase = "steps"
-                st.rerun()
+    section_title("🗺️",f"Mapeamento {art.title()}",
+        f"<b style='color:#C4A6FD'>{d['nome']}</b> · {tc} · {d['freq']}")
 
-    # ── STEPS ─────────────────────────────────────────────────
-    elif fase == "steps":
-        meta   = st.session_state.meta
-        passos = st.session_state.passos
-
-        card_header("📝", f"Passos do {meta['tipo']}",
-                    f"<b style='color:#C4A6FD'>{meta['nome']}</b> · {meta['tipo']} · {meta['freq']} "
-                    f"· {len(passos)} passo{'s' if len(passos)!=1 else ''} registrado{'s' if len(passos)!=1 else ''}")
-
-        for i, p in enumerate(passos):
-            step_chip(i+1, p)
-
-        if passos:
-            st.markdown("<br>", unsafe_allow_html=True)
-
-        num = len(passos) + 1
-        novo = st.text_area(
-            f"{'Descreva o 1º passo' if not passos else f'Passo {num}'}",
-            key=f"si_{num}", max_chars=200, height=80,
-            placeholder="Descreva detalhadamente o que você faz neste passo..."
-        )
-
-        if novo and len(novo.strip()) > 15:
-            if st.button("✦ Validar com IA", key=f"vai_{num}"):
-                with st.spinner("Analisando clareza do passo..."):
-                    resp = call_ai(
-                        "Você é especialista em mapeamento de processos BPMN. "
-                        "Avalie se o passo está claro. Se não, faça 1-2 perguntas curtas de refinamento. "
-                        "Se estiver claro responda apenas: '✓ Passo claro, pode continuar.' "
-                        "Seja muito conciso. Responda em português.",
-                        f"Processo: \"{meta['nome']}\" ({meta['tipo']}). "
-                        f"Passos anteriores: {len(passos)}.\nNovo passo: \"{novo.strip()}\""
-                    )
-                ai_bubble(resp)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("+ Salvar passo", disabled=not novo.strip()):
-                st.session_state.passos.append(novo.strip())
-                st.rerun()
-        with c2:
-            if passos and st.button("↩ Remover último"):
-                st.session_state.passos.pop(); st.rerun()
-        with c3:
-            if len(passos) >= 2:
-                if st.button("Finalizar e gerar fluxograma ✦"):
-                    st.session_state.fase = "gerando"; st.rerun()
-
-        if len(passos) < 2:
-            st.caption("💡 Adicione pelo menos 2 passos para finalizar.")
-
-    # ── GERANDO ───────────────────────────────────────────────
-    elif fase == "gerando":
-        meta   = st.session_state.meta
-        passos = st.session_state.passos
-        with st.spinner("✦ Gerando fluxograma BPMN..."):
-            txt = "\n".join(f"{i+1}. {p}" for i,p in enumerate(passos))
-            bpmn = call_ai(
-                "Você é especialista em notação BPMN. Crie um fluxograma textual claro: "
-                "🟢 Início → etapas → 🔴 Fim. "
-                "Use: 🟢 Início, 🔵 Tarefa, 🔷 Decisão, 🔴 Fim. "
-                "Cada elemento em uma linha com seta →. Responda APENAS o fluxograma.",
-                f"Processo: \"{meta['nome']}\" ({meta['tipo']})\nPassos:\n{txt}"
-            )
-        st.session_state.bpmn = bpmn
-        st.session_state.fase = "confirm"
-        st.rerun()
-
-    # ── CONFIRM ───────────────────────────────────────────────
-    elif fase == "confirm":
-        meta   = st.session_state.meta
-        passos = st.session_state.passos
-        bpmn   = st.session_state.get("bpmn","")
-
-        card_header("✦", "Fluxograma Gerado",
-                    "A IA criou o fluxograma abaixo. Confira se está correto.")
-
+    if not fluxo:
         st.markdown(f"""
-        <div style="background:rgba(69,51,124,0.18);border:1px solid rgba(155,106,250,0.28);
-                    border-radius:12px;padding:20px;font-family:monospace;font-size:13px;
-                    line-height:1.9;color:#E6E0FC;white-space:pre-wrap;margin:12px 0;">
-{bpmn}
-        </div>
-        """, unsafe_allow_html=True)
+        <div style="background:rgba(155,106,250,0.06);border:1px solid rgba(155,106,250,0.2);
+                    border-radius:12px;padding:16px 18px;margin-bottom:16px;
+                    font-size:13px;color:#A8A7BC;line-height:1.7;">
+            <b style="color:#C4A6FD;">Orientação:</b> Descreva o processo passo a passo, desde o início
+            até a conclusão. Informe todas as ações realizadas, sistemas utilizados, critérios de decisão
+            e exceções existentes. A descrição deve ser clara o suficiente para que outra pessoa consiga
+            executar a atividade apenas seguindo as instruções fornecidas. Este mapeamento será usado para
+            documentar o processo, identificar melhorias e avaliar automações.
+        </div>""", unsafe_allow_html=True)
 
-        ok = st.radio(
-            f"O fluxograma corresponde ao {meta['tipo'].lower()} que você realiza hoje?",
-            ["✓ Sim, está correto", "✗ Faltou algo"], horizontal=True, key="bconf"
-        )
-        faltou = ""
-        if "Faltou" in ok:
-            faltou = st.text_area("Qual passo faltou incluir?", key="bf", height=70)
-
-        st.markdown("---")
-        sugestao = st.text_area("💡 Sugestão de melhoria para essa demanda? (opcional)",
-                                key="bsug", height=70)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2 = st.columns([1,3])
+        desc = st.text_area(f"Descreva {art} completo e detalhado:",
+            key="map_desc",height=240,
+            placeholder="Ex: Abra a planilha X, filtre os registros com queda de processamento "
+                        "na última semana, copie as colunas A, C, D, cole no e-mail e envie para...")
+        c1,c2 = st.columns([1,3])
         with c1:
-            if st.button("← Editar passos"):
-                st.session_state.fase = "steps"; st.rerun()
+            if st.button("← Voltar"):
+                st.session_state.page="demanda"; st.rerun()
         with c2:
-            if st.button("Salvar e finalizar ✓"):
-                save_map(
-                    st.session_state.usuario,
-                    st.session_state.job,
-                    {**meta, "passos": passos, "bpmn": bpmn,
-                     "confirmado": "Sim" if "Sim" in ok else "Não",
-                     "faltou": faltou, "sugestao": sugestao}
-                )
-                st.session_state.processo_salvo = {**meta, "passos": passos, "sugestao": sugestao}
-                st.session_state.step = 3
+            if st.button("✦ Gerar Fluxograma com IA",
+                         disabled=not(desc and len(desc.strip())>30)):
+                with st.spinner("✦ Analisando e gerando fluxograma..."):
+                    ctx = (f"Demanda: {d['nome']}\nTipo: {tc}\nFerramentas: {d['ferramentas']}\n"
+                           f"Objetivo: {d['objetivo']}\nProblema: {d['problema']}\n\n"
+                           f"Descrição fornecida pelo colaborador:\n{desc.strip()}")
+                    resp = call_ai(SYS_GERAR, ctx)
+                st.session_state.fluxograma    = resp
+                st.session_state.descricao_livre = desc.strip()
+                st.session_state.iteracoes     = 1
                 st.rerun()
+    else:
+        st.markdown(f"""
+        <div style="font-size:13px;color:#A8A7BC;margin-bottom:10px;line-height:1.6;">
+            <b style="color:#AAEDFF;">✦ IA</b>&nbsp; Com base nas informações que você digitou,
+            segue o fluxograma {'da tarefa' if tc=='Tarefa' else 'do processo'}.
+            Leia com atenção e verifique se todos os passos constam abaixo.
+        </div>""", unsafe_allow_html=True)
+        bpmn_box(fluxo)
+        st.markdown("---")
+        st.markdown("<div style='color:#C4A6FD;font-size:14px;font-weight:600;margin-bottom:10px;'>"
+                    "O fluxograma reflete a atividade que você realiza?</div>",
+                    unsafe_allow_html=True)
+        resposta = st.radio("",
+            ["✓ Sim, está correto — finalizar",
+             "✎ Não, preciso fazer ajustes"],
+            key=f"rev_{it}", label_visibility="collapsed")
 
-# ─── STEP 4: SUCESSO ─────────────────────────────────────────────────────────
-def step_sucesso():
-    u = st.session_state.usuario
-    p = st.session_state.processo_salvo
+        if "ajustes" in resposta:
+            ajuste = st.text_area("Descreva os ajustes ou os passos que faltaram:",
+                key=f"aj_{it}",height=140,
+                placeholder="Ex: Faltou informar que antes de enviar o e-mail preciso salvar cópia no Drive...")
+            if st.button("✦ Atualizar Fluxograma",key=f"upd_{it}",
+                         disabled=not(ajuste and len(ajuste.strip())>10)):
+                with st.spinner("✦ Atualizando fluxograma..."):
+                    ctx = f"Fluxograma anterior:\n{fluxo}\n\nAjustes do colaborador:\n{ajuste.strip()}"
+                    novo = call_ai(SYS_AJUSTAR, ctx)
+                st.session_state.fluxograma = novo
+                st.session_state.iteracoes += 1
+                st.rerun()
+        elif "finalizar" in resposta:
+            if st.button("Próximo → Sugestão de melhoria"):
+                st.session_state.page="sugestao"; st.rerun()
+
+# ── ETAPA 4: SUGESTÃO ─────────────────────────────────────────
+def page_sugestao():
+    d = st.session_state.demanda
+    art = "da" if d["tipo"]=="Tarefa" else "do"
+    section_title("💡","Sugestão de Melhoria",
+        f"Finalizamos o mapeamento {art} {d['tipo']} "
+        f"<b style='color:#C4A6FD'>{d['nome']}</b>. Agora queremos ouvir sua opinião.")
+    st.markdown("""<div style="font-size:15px;color:#E6E0FC;line-height:1.7;margin-bottom:20px;">
+        Você identifica alguma oportunidade de melhoria, otimização ou automação para esta atividade?
+        Caso sim, descreva sua sugestão.</div>""", unsafe_allow_html=True)
+    sug = st.text_area("Sua sugestão (opcional):",key="sug",height=120,
+        placeholder="Ex: Este processo poderia ser automatizado via integração entre as ferramentas X e Y...")
+    st.markdown("<br>",unsafe_allow_html=True)
+    c1,c2 = st.columns([1,3])
+    with c1:
+        if st.button("← Voltar"):
+            st.session_state.page="mapeamento"; st.rerun()
+    with c2:
+        if st.button("✓ Finalizar e Salvar"):
+            with st.spinner("Salvando no Google Sheets..."):
+                ok,err = save_to_sheets(
+                    st.session_state.usuario, st.session_state.demanda,
+                    st.session_state.fluxograma, sug or "")
+            st.session_state.update(save_ok=ok,save_err=err,sugestao=sug,page="encerramento")
+            st.rerun()
+
+# ── ETAPA 5: ENCERRAMENTO ─────────────────────────────────────
+def page_encerramento():
+    d  = st.session_state.demanda
+    u  = st.session_state.usuario
+    ok = st.session_state.get("save_ok")
+    er = st.session_state.get("save_err","")
+    art = "da" if d["tipo"]=="Tarefa" else "do"
+
+    status_txt   = "✅ Mapeamento salvo no Google Sheets!" if ok \
+                   else f"⚠️ Não foi possível salvar automaticamente ({er}). Copie o fluxograma manualmente."
+    status_color = "#6FD48A" if ok else "#F4A460"
 
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,rgba(155,106,250,0.14),rgba(69,51,124,0.2));
                 border:1px solid rgba(155,106,250,0.3);border-radius:18px;
                 padding:40px 32px;text-align:center;margin:20px 0;">
         <div style="font-size:48px;margin-bottom:12px;">✦</div>
-        <div style="font-size:22px;font-weight:700;margin-bottom:10px;">Processo mapeado!</div>
-        <div style="font-size:14px;color:#A8A7BC;line-height:1.7;max-width:440px;margin:0 auto 24px;">
-            <b style="color:#C4A6FD;">{p['nome']}</b> ({p['tipo']}) registrado com
-            <b style="color:#fff;">{len(p['passos'])} passos</b>.
-            {' Sugestão de melhoria registrada.' if p.get('sugestao') else ''}
+        <div style="font-size:22px;font-weight:700;margin-bottom:10px;">Mapeamento concluído!</div>
+        <div style="font-size:14px;color:#A8A7BC;line-height:1.8;max-width:480px;margin:0 auto 20px;">
+            Obrigado, <b style="color:#C4A6FD;">{u['nome']}</b>!<br>
+            {d['tipo']} <b style="color:#fff;">{d['nome']}</b> foi mapeado{'a' if d['tipo']=='Tarefa' else ''} com sucesso.
+        </div>
+        <div style="font-size:13px;color:{status_color};background:rgba(255,255,255,0.05);
+                    border-radius:8px;padding:10px 16px;display:inline-block;margin-bottom:24px;">
+            {status_txt}
         </div>
         <div style="background:rgba(155,106,250,0.08);border-radius:10px;padding:14px 18px;
-                    max-width:320px;margin:0 auto;text-align:left;font-size:13px;
-                    color:#E6E0FC;line-height:1.9;">
+                    max-width:360px;margin:0 auto;text-align:left;font-size:13px;color:#E6E0FC;line-height:1.9;">
+            📌 {d['tipo']}: {d['nome']}<br>
             👤 {u['nome']} · {u['time']}<br>
-            📌 {p['tipo']}: {p['nome']}<br>
-            📅 {p['freq']} · {len(p['passos'])} passos<br>
-            🛠️ {p.get('ferr','—')}
+            📅 {d['freq']}{' · ' + d['gatilho'] if d.get('gatilho') else ''}<br>
+            🛠️ {d['ferramentas'][:60]}{'...' if len(d['ferramentas'])>60 else ''}
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
-    c1, c2 = st.columns(2)
+    with st.expander("Ver fluxograma salvo"):
+        bpmn_box(st.session_state.get("fluxograma",""))
+
+    st.markdown("""
+    <div style="background:rgba(170,237,255,0.06);border:1px solid rgba(170,237,255,0.2);
+                border-radius:12px;padding:18px 20px;text-align:center;margin-top:16px;">
+        <div style="font-size:15px;font-weight:600;color:#AAEDFF;margin-bottom:12px;">
+            Deseja mapear uma nova demanda?</div>
+    </div>""", unsafe_allow_html=True)
+
+    c1,c2 = st.columns(2)
     with c1:
-        if st.button("+ Mapear outro processo", use_container_width=True):
-            st.session_state.step = 2
-            st.session_state.fase = "meta"
-            st.session_state.passos = []
-            st.session_state.pop("bpmn", None)
-            st.rerun()
+        if st.button("✦ Mapear nova demanda", use_container_width=True):
+            for k in ["demanda","fluxograma","iteracoes","sugestao",
+                      "save_ok","save_err","descricao_livre"]:
+                st.session_state.pop(k,None)
+            st.session_state.page="demanda"; st.rerun()
     with c2:
-        if st.button("📂 Ver meus mapeamentos", use_container_width=True):
-            st.session_state.step = 10; st.rerun()
-
-# ─── HISTÓRICO ────────────────────────────────────────────────────────────────
-def page_historico():
-    init_db()
-    email = st.session_state.get("email","")
-    meus  = [d for d in st.session_state.db["mapeamentos"] if d["usuario"]["email"]==email]
-
-    st.markdown(f"### 📂 Meus Mapeamentos  <span style='font-size:14px;color:#A8A7BC;font-weight:400'>({len(meus)} registros)</span>", unsafe_allow_html=True)
-
-    if not meus:
-        info_box("ℹ️ Você ainda não mapeou nenhum processo. Clique em 'Novo Mapeamento' para começar.")
-    else:
-        for d in reversed(meus):
-            p = d["processo"]
-            with st.expander(f"📌 {p['nome']} · {p['tipo']} · {d['ts']}"):
-                st.markdown(f"**Frequência:** {p['freq']}  \n**Ferramenta:** {p.get('ferr','—')}  \n**Passos:** {len(p['passos'])}")
-                for i,s in enumerate(p["passos"]):
-                    step_chip(i+1, s)
-                if p.get("bpmn"):
-                    st.code(p["bpmn"], language=None)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("+ Novo Mapeamento"):
-        st.session_state.step = 2
-        st.session_state.fase = "meta"
-        st.session_state.passos = []
-        st.rerun()
-
-# ─── GESTÃO ───────────────────────────────────────────────────────────────────
-def page_gestao():
-    init_db()
-    dados = st.session_state.db["mapeamentos"]
-
-    st.markdown("### 📊 Dashboard de Gestão")
-    st.caption(f"{len(dados)} mapeamento{'s' if len(dados)!=1 else ''} registrado{'s' if len(dados)!=1 else ''} nesta sessão")
-
-    if not dados:
-        info_box("ℹ️ Nenhum mapeamento registrado ainda. Faça login como colaborador e mapeie alguns processos.")
-        return
-
-    c1,c2,c3,c4 = st.columns(4)
-    times = set(d["usuario"]["time"] for d in dados)
-    total_passos = sum(len(d["processo"]["passos"]) for d in dados)
-    ferrs = set(d["processo"].get("ferr","") for d in dados if d["processo"].get("ferr"))
-    c1.metric("Mapeamentos", len(dados))
-    c2.metric("Times ativos", len(times))
-    c3.metric("Total de passos", total_passos)
-    c4.metric("Ferramentas únicas", len(ferrs))
-
-    st.markdown("---")
-    st.markdown("**Processos Mapeados**")
-    for d in reversed(dados):
-        u, p = d["usuario"], d["processo"]
-        with st.expander(f"📌 {p['nome']} — {u['nome']} ({u['time']}) · {d['ts']}"):
-            c1,c2 = st.columns(2)
-            with c1:
-                st.markdown(f"**Tipo:** {p['tipo']}  \n**Freq:** {p['freq']}  \n**Ferramenta:** {p.get('ferr','—')}")
-            with c2:
-                st.markdown(f"**Passos:** {len(p['passos'])}  \n**Confirmado:** {p.get('confirmado','—')}  \n**Cargo:** {u['cargo']}")
-            for i,s in enumerate(p["passos"]):
-                step_chip(i+1, s)
-            if p.get("sugestao"):
-                info_box(f"💡 <b>Sugestão:</b> {p['sugestao']}", "#EAF8FF", "#1A5C70")
-            if p.get("bpmn"):
-                st.code(p["bpmn"], language=None)
-
-    st.markdown("---")
-    st.markdown("**Ferramentas Mais Citadas**")
-    from collections import Counter
-    fl = [d["processo"].get("ferr","") for d in dados if d["processo"].get("ferr")]
-    if fl:
-        for ferr, cnt in Counter(fl).most_common(8):
-            pct = int(cnt/len(fl)*100)
-            st.markdown(f"""
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
-                <div style="font-size:13px;color:#E6E0FC;min-width:160px;">{ferr}</div>
-                <div style="flex:1;background:rgba(155,106,250,0.1);border-radius:100px;height:6px;">
-                    <div style="width:{pct}%;background:#9B6AFA;height:6px;border-radius:100px;"></div>
-                </div>
-                <div style="font-size:12px;color:#A8A7BC;min-width:24px;">{cnt}x</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-# ─── MAIN ─────────────────────────────────────────────────────────────────────
-def main():
-    init_db()
-
-    if not st.session_state.get("auth"):
-        page_login()
-        return
-
-    role = st.session_state.get("role","user")
-    nome = st.session_state.get("nome","")
-
-    # ── Header ──
-    st.markdown(f"""
-    <div style="border-bottom:1px solid rgba(155,106,250,0.15);
-                padding:14px 0 14px;margin-bottom:8px;
-                display:flex;align-items:center;justify-content:space-between;">
-        <div style="font-size:18px;font-weight:700;">
-            <span style="color:#9B6AFA;">A</span>ppmax
-            <span style="color:#A8A7BC;font-weight:300;font-size:15px;"> · Mapeamento de Processos</span>
-        </div>
-        <span style="font-size:10px;letter-spacing:2px;color:#AAEDFF;
-                     background:rgba(170,237,255,0.08);border:1px solid rgba(170,237,255,0.22);
-                     padding:4px 12px;border-radius:100px;font-family:monospace;">✦ IA ATIVA</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Sidebar ──
-    with st.sidebar:
-        st.markdown(f"<div style='color:#C4A6FD;font-weight:700;font-size:16px;margin-bottom:16px;'>Olá, {nome.split()[0]} 👋</div>", unsafe_allow_html=True)
-        if st.button("✦ Novo Mapeamento", use_container_width=True):
-            st.session_state.step = 0; st.rerun()
-        if st.button("📂 Meus Mapeamentos", use_container_width=True):
-            st.session_state.step = 10; st.rerun()
-        if role == "gestor":
-            st.markdown("---")
-            if st.button("📊 Dashboard Gestão", use_container_width=True):
-                st.session_state.step = 20; st.rerun()
-        st.markdown("---")
-        if st.button("Sair", use_container_width=True):
+        if st.button("Encerrar sessão", use_container_width=True):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             st.rerun()
 
-    # ── Routing ──
-    step = st.session_state.get("step", 0)
+# ── MAIN ─────────────────────────────────────────────────────
+def main():
+    if not st.session_state.get("auth"):
+        page_login(); return
 
-    if step == 20:
-        page_gestao() if role == "gestor" else st.error("Acesso restrito.")
-        return
-    if step == 10:
-        page_historico()
-        return
+    role = st.session_state.get("role","user")
+    nome = st.session_state.get("nome","")
+    page = st.session_state.get("page","cadastro")
 
-    LABELS = ["Cadastro","Job Descriptor","Mapeamento","Concluído"]
-    step_bar(min(step,3), 4, LABELS)
+    with st.sidebar:
+        st.markdown(f"<div style='color:#C4A6FD;font-weight:700;font-size:15px;"
+                    f"margin-bottom:14px;'>Olá, {nome.split()[0]} 👋</div>",
+                    unsafe_allow_html=True)
+        if role=="user":
+            if st.button("↩ Recomeçar",use_container_width=True):
+                for k in ["demanda","fluxograma","iteracoes","sugestao",
+                          "save_ok","save_err","descricao_livre","usuario"]:
+                    st.session_state.pop(k,None)
+                st.session_state.page="cadastro"; st.rerun()
+        if role=="admin":
+            if st.button("⚙️ Painel Admin",use_container_width=True):
+                st.session_state.page="admin"; st.rerun()
+        st.markdown("---")
+        if st.button("Sair",use_container_width=True):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
 
-    if   step == 0: step_cadastro()
-    elif step == 1: step_job()
-    elif step == 2: step_mapeamento()
-    elif step == 3: step_sucesso()
+    page_header()
 
-if __name__ == "__main__":
+    PAGES  = ["cadastro","demanda","mapeamento","sugestao","encerramento"]
+    LABELS = ["Cadastro","Demanda","Mapeamento","Melhoria","Concluído"]
+    if role=="user" and page in PAGES:
+        step_bar(PAGES.index(page), len(PAGES), LABELS)
+
+    {"admin":page_admin,"cadastro":page_cadastro,"demanda":page_demanda,
+     "mapeamento":page_mapeamento,"sugestao":page_sugestao,
+     "encerramento":page_encerramento}.get(page, page_cadastro)()
+
+if __name__=="__main__":
     main()
