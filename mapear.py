@@ -59,22 +59,22 @@ section[data-testid="stSidebar"] { background: #1a1a38 !important; }
 }
 .stRadio > div { gap: 8px !important; flex-wrap: wrap !important; }
 .stRadio > div > label {
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(155,106,250,0.25) !important;
+    background: rgba(155,106,250,0.10) !important;
+    border: 1px solid rgba(155,106,250,0.40) !important;
     border-radius: 20px !important;
     padding: 7px 18px !important;
-    color: #A8A7BC !important;
+    color: #E6E0FC!important;
     font-size: 13px !important;
-    font-weight: 400 !important;
+    font-weight: 500 !important;
     text-transform: none !important;
     letter-spacing: 0 !important;
     cursor: pointer !important;
 }
 .stRadio > div > label:has(input:checked) {
-    background: rgba(155,106,250,0.18) !important;
+    background: rgba(155,106,250,0.30) !important;
     border-color: #9B6AFA !important;
-    color: #C4A6FD !important;
-    font-weight: 600 !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
 }
 hr { border-color: rgba(155,106,250,0.15) !important; }
 </style>
