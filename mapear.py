@@ -436,7 +436,7 @@ def page_cadastro():
     with c1:
         nome  = st.text_input("Nome completo",key="c_nome")
         time_ = st.selectbox("Time / Departamento",
-            ["","Produto","Engenharia","People & Culture","Operações",
+            ["","Produto","Engenharia","People","Operações","Dados","Chargeback","Cobrança",
              "Comercial","Marketing","Financeiro","CS","TI","Outro"],key="c_time")
     with c2:
         email_ = st.text_input("E-mail corporativo",key="c_email",
