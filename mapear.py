@@ -63,7 +63,7 @@ section[data-testid="stSidebar"] { background: #1a1a38 !important; }
     border: 1px solid rgba(155,106,250,0.40) !important;
     border-radius: 20px !important;
     padding: 7px 18px !important;
-    color: #E6E0FC!important;
+    color: #E6E0FC !important;
     font-size: 13px !important;
     font-weight: 500 !important;
     text-transform: none !important;
@@ -101,7 +101,7 @@ def get_ai():
 def call_ai(system, user, max_tokens=1600):
     try:
         r = get_ai().messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=max_tokens,
             system=system,
             messages=[{"role":"user","content":user}]
@@ -579,9 +579,11 @@ def page_mapeamento():
                            f"Objetivo: {d['objetivo']}\nProblema: {d['problema']}\n\n"
                            f"Descrição fornecida pelo colaborador:\n{desc.strip()}")
                     resp = call_ai(SYS_GERAR, ctx)
-                st.session_state.fluxograma    = resp
+                st.session_state.fluxograma      = resp
                 st.session_state.descricao_livre = desc.strip()
-                st.session_state.iteracoes     = 1
+                st.session_state.iteracoes       = 1
+                # Adiciona descricao_livre ao dict demanda para o save_to_sheets
+                st.session_state.demanda["descricao_livre"] = desc.strip()
                 st.rerun()
     else:
         st.markdown(f"""
