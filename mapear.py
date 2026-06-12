@@ -148,16 +148,109 @@ def save_to_sheets(usuario, demanda, fluxograma, sugestao):
     except Exception as e:
         return False, str(e)
 
-# ── Usuários ──────────────────────────────────────────────────
+# ── Usuários (persistidos no Google Sheets) ───────────────────
 ADMIN_EMAIL = "admin@appmax.com.br"
 ADMIN_PW    = hp("admin2025")
 
+def _get_users_ws():
+    """Retorna a aba 'Usuarios' do Sheets, criando se não existir."""
+    try:
+        import gspread, json
+        from google.oauth2.service_account import Credentials
+        creds_raw  = st.secrets["GOOGLE_CREDENTIALS"]
+        creds_dict = json.loads(creds_raw) if isinstance(creds_raw, str) else dict(creds_raw)
+        scopes = ["https://www.googleapis.com/auth/spreadsheets",
+                  "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(st.secrets["SHEET_ID"])
+        try:
+            ws = sh.worksheet("Usuarios")
+        except Exception:
+            ws = sh.add_worksheet("Usuarios", rows=500, cols=4)
+            ws.append_row(["email", "nome", "pw_hash", "ativo"])
+        return ws
+    except Exception:
+        return None
+
 def get_users():
-    if "usuarios_cadastrados" not in st.session_state:
-        st.session_state.usuarios_cadastrados = {
-            "demo@appmax.com.br": {"nome":"Demo User","pw":hp("appmax2025"),"ativo":True},
-        }
-    return st.session_state.usuarios_cadastrados
+    """
+    Retorna dict {email: {nome, pw, ativo}} lido do Sheets.
+    Usa cache em session_state para evitar chamadas repetidas na mesma sessão.
+    """
+    # Invalida cache quando admin acabou de salvar
+    if st.session_state.get("users_dirty"):
+        st.session_state.pop("users_cache", None)
+        st.session_state.pop("users_dirty", None)
+
+    if "users_cache" in st.session_state:
+        return st.session_state.users_cache
+
+    ws = _get_users_ws()
+    users = {}
+    if ws:
+        try:
+            rows = ws.get_all_records()
+            for r in rows:
+                e = str(r.get("email","")).strip().lower()
+                if e:
+                    users[e] = {
+                        "nome":  r.get("nome",""),
+                        "pw":    r.get("pw_hash",""),
+                        "ativo": str(r.get("ativo","1")) not in ("0","False","false",""),
+                    }
+        except Exception:
+            pass
+    # Fallback: se Sheets não configurado ainda, mantém demo local
+    if not users:
+        users = {"demo@appmax.com.br": {"nome":"Demo User","pw":hp("appmax2025"),"ativo":True}}
+
+    st.session_state.users_cache = users
+    return users
+
+def add_user(email, nome, senha=""):
+    """
+    Adiciona usuário no Sheets.
+    senha="" = primeiro acesso, usuário vai criar a própria senha.
+    """
+    ws = _get_users_ws()
+    if ws:
+        try:
+            cell = ws.find(email.strip().lower())
+            if cell:
+                ws.delete_rows(cell.row)
+        except Exception:
+            pass
+        pw_hash = hp(senha) if senha else ""
+        ws.append_row([email.strip().lower(), nome, pw_hash, "1"])
+    st.session_state.users_dirty = True
+
+def set_user_password(email, nova_senha):
+    """Grava senha criada pelo usuário no primeiro acesso."""
+    ws = _get_users_ws()
+    if not ws:
+        return False, "Sheets não disponível"
+    try:
+        cell = ws.find(email.strip().lower())
+        if cell:
+            ws.update_cell(cell.row, 3, hp(nova_senha))
+            st.session_state.users_dirty = True
+            return True, None
+        return False, "Usuário não encontrado"
+    except Exception as e:
+        return False, str(e)
+
+def remove_user(email):
+    """Remove usuário do Sheets e invalida cache."""
+    ws = _get_users_ws()
+    if ws:
+        try:
+            cell = ws.find(email.strip().lower())
+            if cell:
+                ws.delete_rows(cell.row)
+        except Exception:
+            pass
+    st.session_state.users_dirty = True
 
 # ── componentes ───────────────────────────────────────────────
 def page_header():
@@ -227,19 +320,50 @@ def page_login():
                     border-radius:16px;padding:30px 28px;">
         """, unsafe_allow_html=True)
         email = st.text_input("E-mail", placeholder="seu@appmax.com.br", key="li_e")
-        senha = st.text_input("Senha", type="password", placeholder="••••••••", key="li_s")
-        if st.button("Entrar →", use_container_width=True):
-            e = email.strip().lower()
-            if e == ADMIN_EMAIL and hp(senha) == ADMIN_PW:
-                st.session_state.update(auth=True,email=e,role="admin",nome="Admin",page="admin")
-                st.rerun()
-            else:
-                u = get_users().get(e)
-                if u and u["pw"] == hp(senha) and u.get("ativo"):
-                    st.session_state.update(auth=True,email=e,role="user",nome=u["nome"],page="cadastro")
+
+        # Detecta se é primeiro acesso (sem senha definida)
+        e_check = email.strip().lower()
+        users_check = get_users()
+        u_check = users_check.get(e_check)
+        primeiro_acesso = u_check and u_check.get("ativo") and not u_check.get("pw")
+
+        if primeiro_acesso:
+            st.markdown("""
+            <div style="background:rgba(170,237,255,0.06);border:1px solid rgba(170,237,255,0.2);
+                        border-radius:8px;padding:10px 14px;font-size:12px;color:#AAEDFF;margin:6px 0;">
+                ✦ Primeiro acesso detectado. Crie sua senha abaixo.
+            </div>""", unsafe_allow_html=True)
+            nova_s1 = st.text_input("Crie sua senha", type="password", placeholder="Mínimo 6 caracteres", key="li_ns1")
+            nova_s2 = st.text_input("Confirme sua senha", type="password", placeholder="Repita a senha", key="li_ns2")
+            if st.button("Criar senha e entrar →", use_container_width=True):
+                if len(nova_s1) < 6:
+                    st.error("A senha deve ter pelo menos 6 caracteres.")
+                elif nova_s1 != nova_s2:
+                    st.error("As senhas não coincidem.")
+                else:
+                    with st.spinner("Salvando sua senha..."):
+                        ok, err = set_user_password(e_check, nova_s1)
+                    if ok:
+                        st.session_state.update(auth=True, email=e_check, role="user",
+                                                nome=u_check["nome"], page="cadastro")
+                        st.rerun()
+                    else:
+                        st.error(f"Erro ao salvar senha: {err}")
+        else:
+            senha = st.text_input("Senha", type="password", placeholder="••••••••", key="li_s")
+            if st.button("Entrar →", use_container_width=True):
+                e = email.strip().lower()
+                if e == ADMIN_EMAIL and hp(senha) == ADMIN_PW:
+                    st.session_state.update(auth=True,email=e,role="admin",nome="Admin",page="admin")
                     st.rerun()
                 else:
-                    st.error("E-mail ou senha incorretos, ou acesso não liberado.")
+                    u = get_users().get(e)
+                    if u and u["pw"] == hp(senha) and u.get("ativo"):
+                        st.session_state.update(auth=True,email=e,role="user",nome=u["nome"],page="cadastro")
+                        st.rerun()
+                    else:
+                        st.error("E-mail ou senha incorretos, ou acesso não liberado.")
+
         st.markdown("</div>", unsafe_allow_html=True)
         st.caption("Acesso liberado pelo administrador.")
 
@@ -249,26 +373,35 @@ def page_admin():
     users = get_users()
 
     with st.expander("➕ Cadastrar novo usuário", expanded=True):
-        c1,c2,c3 = st.columns(3)
-        with c1: nn = st.text_input("Nome",key="nu_n")
-        with c2: ne = st.text_input("E-mail",key="nu_e")
-        with c3: np_ = st.text_input("Senha inicial",type="password",key="nu_p")
-        if st.button("Cadastrar"):
-            if nn and ne and np_:
-                users[ne.strip().lower()] = {"nome":nn,"pw":hp(np_),"ativo":True}
-                st.success(f"✓ {nn} cadastrado!")
+        st.markdown("""
+        <div style="font-size:12px;color:#A8A7BC;margin-bottom:12px;line-height:1.6;">
+            💡 Cadastre o e-mail do colaborador. Na primeira vez que ele acessar,
+            o sistema vai pedir para criar a própria senha.
+        </div>""", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1: nn = st.text_input("Nome completo", key="nu_n")
+        with c2: ne = st.text_input("E-mail corporativo", key="nu_e")
+        if st.button("Cadastrar usuário"):
+            if nn and ne:
+                with st.spinner("Salvando no Google Sheets..."):
+                    add_user(ne, nn)   # sem senha — primeiro acesso
+                st.success(f"✓ {nn} ({ne.strip().lower()}) cadastrado! No primeiro login, ele criará a própria senha.")
                 st.rerun()
             else:
-                st.warning("Preencha todos os campos.")
+                st.warning("Preencha nome e e-mail.")
 
-    st.markdown(f"---\n**Usuários ({len(users)})**")
+    st.markdown(f"---\n**Usuários cadastrados ({len(users)})**")
+    if not users:
+        st.caption("Nenhum usuário cadastrado ainda.")
     for em, u in list(users.items()):
         c1,c2,c3 = st.columns([3,2,1])
         with c1: st.markdown(f"**{u['nome']}** · `{em}`")
-        with c2: st.caption("✅ Ativo")
+        with c2: st.caption("✅ Ativo" if u.get("ativo") else "🚫 Inativo")
         with c3:
-            if st.button("Remover",key=f"rm_{em}"):
-                users.pop(em,None); st.rerun()
+            if st.button("Remover", key=f"rm_{em}"):
+                with st.spinner("Removendo..."):
+                    remove_user(em)
+                st.rerun()
 
     st.markdown("---")
     sh_ok = "GOOGLE_CREDENTIALS" in st.secrets and "SHEET_ID" in st.secrets
